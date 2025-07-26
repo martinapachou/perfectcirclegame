@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Perfect Circle Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background-color: #222;
+            color: white;
+        }
+
+        #score, #highscore {
+            font-size: 1.2em;
+            margin: 10px;
+        }
+
+        #highscore {
+            background-color: black;
+            color: white;
+            font-weight: bold;
+            padding: 5px 10px;
+            display: inline-block;
+            border-radius: 5px;
+        }
+
+        canvas {
+            border: 2px solid black;
+            cursor: crosshair;
+            display: block;
+            margin: 0 auto;
+            background-color: black;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Draw a Perfect Circle</h1>
+    <div id="score">Score: --%</div>
+    <div id="highscore">Highscore: 0%</div>
+
+    <canvas id="canvas" width="400" height="400"></canvas>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const scoreDisplay = document.getElementById("score");
+        const highscoreDisplay = document.getElementById("highscore");
+
+        let drawing = false;
+        let points = [];
+        let currentScore = 0;
+        const minDistanceFromCenter = 20; // no-draw zone radius
+
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "white"; // draw lines in white
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        function drawCenterDot() {
+            ctx.fillStyle = "white";
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawCenterDot();
+        }
+
+        drawCenterDot();
+
+        // Load highscore from localStorage or start at 0
+        let highscore = localStorage.getItem("perfectCircleHighscore");
+        highscore = highscore ? parseFloat(highscore) : 0;
+        updateHighscoreDisplay();
+
+        canvas.addEventListener("mousedown", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (Math.hypot(x - centerX, y - centerY) < minDistanceFromCenter) {
+                drawing = false;
+                return;
+            }
+
+            drawing = true;
+            points = [{ x, y }];
+            clearCanvas();
+
+            scoreDisplay.textContent = "Score: --%";
+        });
+
+        canvas.addEventListener("mousemove", (e) => {
+            if (!drawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (Math.hypot(x - centerX, y - centerY) < minDistanceFromCenter) {
+                return; // prevent drawing inside no-draw zone
+            }
+
+            points.push({ x, y });
+
+            clearCanvas();
+
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+
+            // Draw smooth curve through points with quadratic Bezier curves
+            for (let i = 1; i < points.length - 2; i++) {
+                const cpx = (points[i].x + points[i + 1].x) / 2;
+                const cpy = (points[i].y + points[i + 1].y) / 2;
+                ctx.quadraticCurveTo(points[i].x, points[i].y, cpx, cpy);
+            }
+
+            // Draw the last two points
+            if (points.length > 2) {
+                const lastSecond = points[points.length - 2];
+                const last = points[points.length - 1];
+                ctx.quadraticCurveTo(lastSecond.x, lastSecond.y, last.x, last.y);
+            }
+
+            ctx.stroke();
+
+            if (points.length > 10) {
+                updateScore();
+            }
+        });
+
+        canvas.addEventListener("mouseup", () => {
+            drawing = false;
+
+            if (points.length < 10) {
+                scoreDisplay.textContent = "Score: --% (too few points)";
+                clearCanvas();
+                points = [];
+                return;
+            }
+
+            const avgRadius = getAverageRadius();
+
+            if (avgRadius < minDistanceFromCenter) {
+                clearCanvas();
+                scoreDisplay.textContent = "Score: --% (circle too small)";
+                points = [];
+                return;
+            }
+
+            checkHighscore();
+
+            // Clear canvas and reset for next drawing
+            clearCanvas();
+            points = [];
+        });
+
+        function updateScore() {
+            let sumX = 0, sumY = 0;
+            for (let p of points) {
+                sumX += p.x;
+                sumY += p.y;
+            }
+            const centerX = sumX / points.length;
+            const centerY = sumY / points.length;
+
+            let distances = points.map(p => Math.hypot(p.x - centerX, p.y - centerY));
+            let avg = distances.reduce((a, b) => a + b) / distances.length;
+
+            let variance = distances.reduce((sum, d) => sum + Math.pow(d - avg, 2), 0) / distances.length;
+            let stdDev = Math.sqrt(variance);
+
+            let score = Math.max(0, 100 - stdDev * 2);
+            currentScore = score;
+            scoreDisplay.textContent = `Score: ${score.toFixed(2)}%`;
+        }
+
+        function getAverageRadius() {
+            let sumX = 0, sumY = 0;
+            for (let p of points) {
+                sumX += p.x;
+                sumY += p.y;
+            }
+            const centerX = sumX / points.length;
+            const centerY = sumY / points.length;
+
+            let distances = points.map(p => Math.hypot(p.x - centerX, p.y - centerY));
+            let avg = distances.reduce((a, b) => a + b) / distances.length;
+
+            return avg;
+        }
+
+        function checkHighscore() {
+            if (currentScore > highscore) {
+                highscore = currentScore;
+                localStorage.setItem("perfectCircleHighscore", highscore.toFixed(2));
+                updateHighscoreDisplay();
+            }
+        }
+
+        function updateHighscoreDisplay() {
+            highscoreDisplay.textContent = `Highscore: ${highscore.toFixed(2)}%`;
+        }
+    </script>
+
+</body>
+</html>
